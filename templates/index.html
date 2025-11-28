@@ -50,23 +50,25 @@ td pre { white-space: pre-wrap; text-align: left; margin: 0; }
 
   <label>源语言：</label>
   <select name="from_lang">
-    <option>普通话</option>
-    <option>粤语</option>
-    <option>广韵</option>
+    <option value="普通话" {% if from_lang == "普通话" %}selected{% endif %}>普通话</option>
+    <option value="粤语" {% if from_lang == "粤语" %}selected{% endif %}>粤语</option>
+    <option value="广韵" {% if from_lang == "广韵" %}selected{% endif %}>广韵</option>
   </select>
   →
   <label>目标语言：</label>
   <select name="to_lang">
-    <option>普通话</option>
-    <option>粤语</option>
-    <option>广韵</option>
+    <option value="普通话" {% if to_lang == "普通话" %}selected{% endif %}>普通话</option>
+    <option value="粤语" {% if to_lang == "粤语" %}selected{% endif %}>粤语</option>
+    <option value="广韵" {% if to_lang == "广韵" %}selected{% endif %}>广韵</option>
   </select>
+
+
 
   <input type="text" name="char_compare" maxlength="1" placeholder="输入汉字" required>
 
   <label>
-    <input type="checkbox" name="filter_common"
-           {% if filter_common %}checked{% endif %}>
+    <input type="checkbox" name="filter_common" 
+          {% if filter_common %}checked{% endif %}>
     只显示常用字
   </label>
 
