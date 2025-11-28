@@ -1,3 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<title>汉字语音查询系统</title>
+<style>
+body { font-family: "Noto Sans SC", sans-serif; background: #fafafa; margin: 2em auto; width: 70%; }
+h1 { text-align: center; }
+form { margin-bottom: 2em; padding: 1em; background: #fff; border-radius: 10px; box-shadow: 0 0 5px #ccc; }
+input, select, button { font-size: 1em; padding: .3em .5em; margin: .2em; }
+table { width: 100%; border-collapse: collapse; margin-top: 1em; }
+th, td { border: 1px solid #ccc; padding: .5em; text-align: center; }
+td pre { white-space: pre-wrap; text-align: left; margin: 0; }
+.group { background: #f3f3f3; padding: .5em; border-radius: 6px; margin-top: 1em; }
+</style>
+</head>
+<body>
+<h1>汉字语音查询系统</h1>
+
+<!-- 简单查询 -->
+<form method="POST">
+  <input type="hidden" name="mode" value="basic">
+  <h3>基础功能 1：单字语音查询</h3>
+  <input type="text" name="char_basic" maxlength="1" placeholder="输入汉字" required>
+  <button type="submit">查询</button>
+</form>
+
+{% if mode == "basic" and result %}
+  <table>
+    <tr><th>字形</th><th>Unicode</th><th>广韵信息</th><th>反切</th>
+        <th>Polyhedron中古全拼</th><th>普通话拼音</th><th>粤语拼音</th></tr>
+    {% for r in result %}
+    <tr>
+      <td>{{ r.glyph }}</td>
+      <td>{{ r.unicode }}</td>
+      <td><pre>{{ r["广韵信息"] }}</pre></td>
+      <td><pre>{{ r["反切"] }}</pre></td>
+      <td><pre>{{ r["polyhedron中古全拼"] }}</pre></td>
+      <td>{{ r.mandarin_pinyin }}</td>
+      <td>{{ r.cantonese_jyutping }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+{% endif %}
+
 <!-- 跨语言查询 -->
 <form method="POST">
   <input type="hidden" name="mode" value="compare">
@@ -27,3 +72,51 @@
 
   <button type="submit">查询</button>
 </form>
+
+
+{% if mode == "compare" and result %}
+
+  {% if result.error %}
+    <p style="color:red;">{{ result.error }}</p>
+
+  {% elif result.mode == "to_guangyun_fold" %}
+  <div class="group">
+    <b>{{ from_lang }} 读音：</b> {{ result.readings|join('；') }}
+  </div>
+
+  <div class="group">
+    <b>同音字：</b> {{ result.same_sound|join('') }}
+  </div>
+
+  <div class="group">
+    <b>{{ from_lang }} → 广韵 对应：</b><br><br>
+
+    {% for title, chars in result.groups_folded.items() %}
+      <div style="padding-left:1em; margin-bottom:0.5em;">
+        <b>{{ title }}：</b> {{ chars }}
+      </div>
+    {% endfor %}
+  </div>
+
+
+  {% else %}
+    <!-- === 普通话 <-> 粤语 模式（原逻辑） === -->
+    <div class="group">
+      <b>{{ from_lang }} 读音：</b> {{ result.readings|join('；') }}
+    </div>
+    <div class="group">
+      <b>同音字：</b> {{ result.same_sound|join('') }}
+    </div>
+    <div class="group">
+      <b>{{ from_lang }} → {{ to_lang }} 对应：</b><br>
+      {% for pron, chars in result.groups.items() %}
+        <b>{{ to_lang }}发音 {{ pron }}：</b> {{ chars|join('') }}<br>
+      {% endfor %}
+    </div>
+
+  {% endif %}
+{% endif %}
+
+
+</body>
+</html>
