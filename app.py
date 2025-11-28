@@ -1,11 +1,15 @@
 from flask import Flask, render_template, request
 import csv
+import json
 from collections import defaultdict
 
 app = Flask(__name__)
 
 CSV_PATH = "guangyun_with_all_readings.csv"
 
+# ================================
+# 读取基础广韵 + 拼音数据
+# ================================
 def load_data(path):
     rows = []
     with open(path, "r", encoding="utf-8-sig") as f:
@@ -14,11 +18,22 @@ def load_data(path):
             rows.append(r)
     return rows
 
-# 预加载数据与索引
 rows = load_data(CSV_PATH)
 
+# ================================
+# 读取频率表（提前生成）
+# ================================
+with open("mandarin_freq_all.json", "r", encoding="utf-8") as f:
+    mandarin_freq = json.load(f)
+
+with open("cantonese_freq_all.json", "r", encoding="utf-8") as f:
+    cantonese_freq = json.load(f)
+
+
+# ================================
+# 建立 {读音 : [字]} 索引
+# ================================
 def build_index(rows, key):
-    """建立 {读音: [字]} 索引"""
     index = defaultdict(list)
     for r in rows:
         val = r.get(key, "")
@@ -30,38 +45,23 @@ def build_index(rows, key):
                 index[p].append(r["glyph"])
     return index
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    result = None
-    mode = "basic"
-    char = ""
-    from_lang = to_lang = ""
-    query_results = None
 
-    if request.method == "POST":
-        mode = request.form.get("mode")
+# ================================
+# 过滤字是否常用
+# ================================
+def is_common_char(glyph, from_lang):
+    """根据源语言决定用哪个字频过滤"""
+    if from_lang == "普通话":
+        return mandarin_freq.get(glyph, 0) > 0
+    if from_lang == "粤语":
+        return cantonese_freq.get(glyph, 0) > 0
+    # 广韵 → 只要出现在广韵数据中即可
+    return True
 
-        # 基础功能 1：简单查询
-        if mode == "basic":
-            char = request.form.get("char_basic", "").strip()
-            query_results = [r for r in rows if r["glyph"] == char]
 
-        # 基础功能 2：跨系统查询
-        elif mode == "compare":
-            char = request.form.get("char_compare", "").strip()
-            from_lang = request.form.get("from_lang")
-            to_lang = request.form.get("to_lang")
-            query_results = compare_pronunciations(rows, from_lang, to_lang, char)
-
-    return render_template(
-        "index.html",
-        mode=mode,
-        char=char,
-        result=query_results,
-        from_lang=from_lang,
-        to_lang=to_lang
-    )
-
+# ================================
+# 工具：根据 key 获取字的所有读音
+# ================================
 def get_pronunciations(rows, char, key):
     return sorted({
         p.strip()
@@ -70,8 +70,12 @@ def get_pronunciations(rows, char, key):
         if p.strip()
     })
 
-def compare_pronunciations(rows, from_lang, to_lang, char):
-    """核心逻辑：A→B 查询（新：广韵地位折叠显示）"""
+
+# ================================
+# 核心：跨系统查询
+# ================================
+def compare_pronunciations(rows, from_lang, to_lang, char, filter_common):
+
     lang_map = {
         "普通话": "mandarin_pinyin",
         "粤语": "cantonese_jyutping",
@@ -83,64 +87,104 @@ def compare_pronunciations(rows, from_lang, to_lang, char):
     if not col_from or not col_to:
         return {"error": "无效语言选项"}
 
-    # === Step 1: 获取输入字在源语言的所有读音 ===
+    # ==== 1. 输入字在源语言的所有读音 ====
     readings = get_pronunciations(rows, char, col_from)
     if not readings:
         return {"error": f"未找到「{char}」的 {from_lang} 读音"}
 
-    # === Step 2: 找同音字 ===
+    # ==== 2. 找同音字 ====
     idx_from = build_index(rows, col_from)
-    same_sound_chars = sorted({c for p in readings for c in idx_from.get(p, [])})
+    same_sound = sorted({glyph for p in readings for glyph in idx_from.get(p, [])})
 
-    # === Step 3: 目标语言是广韵：折叠输出 ===
+    # ==== 3. 进行频率过滤 ====
+    if filter_common:
+        same_sound = [g for g in same_sound if is_common_char(g, from_lang)]
+
+    # ==== 4. 目标语言 = 广韵 → 特殊折叠格式 ====
     if to_lang == "广韵":
-        # key = (中古拼音, 广韵地位)
         fold = defaultdict(list)
 
         for r in rows:
             g = r["glyph"]
-            if g not in same_sound_chars:
+            if g not in same_sound:
                 continue
 
-            middle_list = r.get("polyhedron中古全拼", "").replace("\n", "；").split("；")
-            pos_list    = r.get("广韵信息", "").replace("\n", "；").split("；")
+            mids = r.get("polyhedron中古全拼", "").replace("\n", "；").split("；")
+            poses = r.get("广韵信息", "").replace("\n", "；").split("；")
 
-            # 保证一一对应
-            for mid, pos in zip(middle_list, pos_list):
+            for mid, pos in zip(mids, poses):
                 mid = mid.strip()
                 pos = pos.strip()
                 if mid and pos:
                     fold[(mid, pos)].append(g)
 
-        # 输出结构： { "dex（定開四上齊）": "媞遞" }
-        folded_output = {
+        grouped = {
             f"{mid}（{pos}）": "".join(lst)
             for (mid, pos), lst in fold.items()
         }
 
         return {
+            "mode": "to_guangyun_fold",
             "readings": readings,
-            "same_sound": same_sound_chars,
-            "groups_folded": folded_output,
-            "mode": "to_guangyun_fold"
+            "same_sound": same_sound,
+            "groups_folded": grouped
         }
 
-    # === Step 4: 普通话 / 粤语：正常输出 ===
+    # ==== 5. 普通话 / 粤语 输出 ====
     group = defaultdict(set)
     for r in rows:
         g = r["glyph"]
-        if g not in same_sound_chars:
+        if g not in same_sound:
             continue
         for p in r.get(col_to, "").replace("\n", "；").split("；"):
             if p.strip():
                 group[p.strip()].add(g)
 
     return {
+        "mode": "normal",
         "readings": readings,
-        "same_sound": same_sound_chars,
-        "groups": {k: sorted(v) for k, v in sorted(group.items())},
-        "mode": "normal"
+        "same_sound": same_sound,
+        "groups": {k: sorted(v) for k, v in sorted(group.items())}
     }
+
+
+# ================================
+# Flask 路由
+# ================================
+@app.route("/", methods=["GET", "POST"])
+def index():
+    result = None
+    mode = "basic"
+    char = ""
+    from_lang = to_lang = ""
+    filter_common = False
+
+    if request.method == "POST":
+        mode = request.form.get("mode")
+
+        if mode == "basic":
+            char = request.form.get("char_basic", "").strip()
+            result = [r for r in rows if r["glyph"] == char]
+
+        elif mode == "compare":
+            char = request.form.get("char_compare", "").strip()
+            from_lang = request.form.get("from_lang")
+            to_lang = request.form.get("to_lang")
+            filter_common = request.form.get("filter_common") == "on"
+
+            result = compare_pronunciations(
+                rows, from_lang, to_lang, char, filter_common
+            )
+
+    return render_template(
+        "index.html",
+        mode=mode,
+        char=char,
+        result=result,
+        from_lang=from_lang,
+        to_lang=to_lang,
+        filter_common=filter_common
+    )
 
 
 if __name__ == "__main__":

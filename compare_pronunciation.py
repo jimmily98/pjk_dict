@@ -2,6 +2,7 @@
 import csv
 from collections import defaultdict
 
+
 CSV_PATH = "guangyun_with_all_readings.csv"
 
 def load_data(path):
